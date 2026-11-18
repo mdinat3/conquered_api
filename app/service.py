@@ -42,9 +42,35 @@ def build_profile(db: Session, user: User) -> ProfileResponse:
         user_id=user.id,
         email=user.email,
         display_name=user.display_name,
+        friend_code=user.friend_code or "",
         is_guest=user.is_guest,
         stats=build_stats(db, user.id),
     )
+
+
+_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def assign_friend_code(db: Session, user: User) -> None:
+    if user.friend_code:
+        return
+
+    for _ in range(20):
+        code = "".join(secrets.choice(_CODE_ALPHABET) for _ in range(8))
+        taken = db.scalar(select(User.id).where(User.friend_code == code))
+        if taken is None:
+            user.friend_code = code
+            return
+
+    raise RuntimeError("Could not allocate a friend code.")
+
+
+def ensure_friend_codes(db: Session) -> None:
+    missing = db.scalars(select(User).where(User.friend_code.is_(None), User.is_retired.is_(False))).all()
+    for user in missing:
+        assign_friend_code(db, user)
+    if len(missing) > 0:
+        db.commit()
 
 
 def merge_guest_into_account(db: Session, guest: User, account: User) -> None:

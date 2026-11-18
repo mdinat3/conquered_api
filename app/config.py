@@ -35,6 +35,7 @@ class Settings:
     token_exp_hours: int = int(os.getenv("token_exp_hours", "720"))
     api_title: str = "Conquered API"
     cors_origins: str = os.getenv("cors_origins", "*")
+    match_url: str = os.getenv("match_url", "http://127.0.0.1:8010")
 
 
 settings = Settings()

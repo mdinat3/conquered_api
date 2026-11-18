@@ -19,6 +19,7 @@ class ProfileResponse(BaseModel):
     user_id: int
     email: str | None
     display_name: str
+    friend_code: str
     is_guest: bool
     stats: ProfileStats
 
@@ -122,3 +123,81 @@ class UsageStatsResponse(BaseModel):
     os: list[UsageCountItem]
     browsers: list[UsageCountItem]
     platforms: list[UsageCountItem]
+
+
+PresenceKind = Literal["offline", "online", "lobby", "match"]
+FriendDirection = Literal["friend", "incoming", "outgoing"]
+
+
+class FriendCodeRequest(BaseModel):
+    friend_code: str = Field(min_length=4, max_length=8)
+
+
+class FriendRow(BaseModel):
+    user_id: int
+    display_name: str
+    friend_code: str
+    presence: PresenceKind
+    request_id: int = 0
+    direction: FriendDirection
+
+
+class BlockRow(BaseModel):
+    user_id: int
+    display_name: str
+
+
+class FriendOverview(BaseModel):
+    friend_code: str
+    friends: list[FriendRow]
+    incoming: list[FriendRow]
+    outgoing: list[FriendRow]
+    blocks: list[BlockRow]
+
+
+class InviteCreateRequest(BaseModel):
+    user_id: int
+
+
+class InviteRecord(BaseModel):
+    invite_id: int
+    table_id: int
+    from_user_id: int
+    from_display_name: str
+    to_user_id: int
+    expires_unix: int
+    status: str
+
+
+class TableSeatRecord(BaseModel):
+    seat: int
+    user_id: int
+    display_name: str
+    hero_id: str
+    ready: bool
+    team: int
+
+
+class TableRecord(BaseModel):
+    table_id: int
+    mode: str
+    status: str
+    your_seat: int
+    seats: list[TableSeatRecord]
+
+
+class ReadyRequest(BaseModel):
+    hero_id: HeroKind
+    card_ids: list[str] = Field(min_length=30, max_length=30)
+
+
+class ActionRequest(BaseModel):
+    client_action_id: str = Field(min_length=4, max_length=64)
+    action_type: str
+    card_instance_ids: list[int] = Field(default_factory=list)
+    card_instance_id: int = 0
+    lane_index: int = -1
+    target_player_index: int = -1
+    target_unit_instance_id: int = 0
+    second_target_unit_instance_id: int = 0
+    ally_unit_instance_id: int = 0

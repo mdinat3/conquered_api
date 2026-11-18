@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -11,6 +13,7 @@ class User(Base):
     email: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     display_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    friend_code: Mapped[str | None] = mapped_column(String(8), nullable=True, unique=True)
     is_guest: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_retired: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -106,3 +109,105 @@ class DeckCard(Base):
     card_id: Mapped[str] = mapped_column(String(32), nullable=False)
 
     deck: Mapped[Deck] = relationship(back_populates="cards")
+
+
+class FriendLink(Base):
+    __tablename__ = "friend_links"
+    __table_args__ = (
+        Index("ix_friend_links_addressee_status", "addressee_id", "status"),
+        Index("ix_friend_links_requester_status", "requester_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    requester_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    addressee_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class UserBlock(Base):
+    __tablename__ = "user_blocks"
+    __table_args__ = (
+        UniqueConstraint("blocker_id", "blocked_id", name="uq_user_blocks_pair"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    blocker_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    blocked_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class GameTable(Base):
+    __tablename__ = "game_tables"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    mode: Mapped[str] = mapped_column(String(16), nullable=False, default="duel")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="lobby")
+    seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    action_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_active_seat: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    turn_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    result_saved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    seats: Mapped[list["TableSeat"]] = relationship(back_populates="table", cascade="all, delete-orphan")
+    invites: Mapped[list["TableInvite"]] = relationship(back_populates="table", cascade="all, delete-orphan")
+    actions: Mapped[list["TableAction"]] = relationship(back_populates="table", cascade="all, delete-orphan")
+
+
+class TableSeat(Base):
+    __tablename__ = "table_seats"
+    __table_args__ = (
+        UniqueConstraint("table_id", "seat_index", name="uq_table_seats_index"),
+        UniqueConstraint("table_id", "user_id", name="uq_table_seats_user"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    table_id: Mapped[int] = mapped_column(ForeignKey("game_tables.id", ondelete="CASCADE"), nullable=False, index=True)
+    seat_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    team: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    hero_id: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    deck_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    ready: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    table: Mapped[GameTable] = relationship(back_populates="seats")
+    user: Mapped[User] = relationship()
+
+
+class TableInvite(Base):
+    __tablename__ = "table_invites"
+    __table_args__ = (
+        Index("ix_table_invites_to_status", "to_user_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    table_id: Mapped[int] = mapped_column(ForeignKey("game_tables.id", ondelete="CASCADE"), nullable=False, index=True)
+    from_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    to_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    table: Mapped[GameTable] = relationship(back_populates="invites")
+
+
+class TableAction(Base):
+    __tablename__ = "table_actions"
+    __table_args__ = (
+        UniqueConstraint("table_id", "seq", name="uq_table_actions_seq"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    table_id: Mapped[int] = mapped_column(ForeignKey("game_tables.id", ondelete="CASCADE"), nullable=False, index=True)
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    seat_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    client_action_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    table: Mapped[GameTable] = relationship(back_populates="actions")

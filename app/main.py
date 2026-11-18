@@ -1,3 +1,5 @@
+import asyncio
+
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -10,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db import Base, engine, get_db
+from app.db import Base, SessionLocal, engine, get_db
 from app.models import ClientEvent, Deck, DeckCard, MatchResult, User
 from app.schemas import (
     AuthTokenResponse,
@@ -30,8 +32,10 @@ from app.schemas import (
 )
 from app.security import create_access_token, decode_access_token, hash_password, verify_password
 from app.service import (
+    assign_friend_code,
     build_guest_name,
     build_profile,
+    ensure_friend_codes,
     load_active_user_by_email,
     load_active_user_by_id,
     merge_guest_into_account,
@@ -39,6 +43,11 @@ from app.service import (
     resolve_client_ip,
     track_client_event,
 )
+from app.realtime import router as realtime_router
+from app.social import router as social_router
+from app.tables import router as tables_router
+from app.tables import watch_tables
+from app.presence import presence
 
 
 app = FastAPI(title=settings.api_title)
@@ -76,6 +85,31 @@ MaxCopiesPerCard = 2
 @app.on_event("startup")
 def startup() -> None:
     Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    try:
+        ensure_friend_codes(db)
+    finally:
+        db.close()
+
+
+@app.on_event("startup")
+async def start_realtime() -> None:
+    presence.bind_loop(asyncio.get_running_loop())
+
+    async def clock() -> None:
+        while True:
+            await asyncio.sleep(1)
+            try:
+                watch_tables()
+            except Exception:
+                continue
+
+    asyncio.create_task(clock())
+
+
+app.include_router(social_router)
+app.include_router(tables_router)
+app.include_router(realtime_router)
 
 
 @app.exception_handler(RequestValidationError)
@@ -215,6 +249,7 @@ def health() -> dict:
 def create_guest(payload: GuestCreateRequest, request: Request, db: Session = Depends(get_db)) -> AuthTokenResponse:
     display_name = (payload.display_name or "").strip() or build_guest_name()
     guest = User(display_name=display_name, is_guest=True, is_retired=False)
+    assign_friend_code(db, guest)
     db.add(guest)
     db.commit()
     db.refresh(guest)
@@ -258,6 +293,7 @@ def signup(
         account.password_hash = hash_password(payload.password)
         account.display_name = display_name
         account.is_guest = False
+        assign_friend_code(db, account)
         db.commit()
         db.refresh(account)
     else:
@@ -271,6 +307,7 @@ def signup(
             is_guest=False,
             is_retired=False,
         )
+        assign_friend_code(db, account)
         db.add(account)
         db.commit()
         db.refresh(account)
