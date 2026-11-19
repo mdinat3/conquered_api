@@ -19,10 +19,10 @@ mysql_username=root
 mysql_pass=...
 mysql_port=3306
 mysql_db=conquered
-jwt_secret=change-me
+jwt_secret=<random-secret-at-least-32-bytes>
 ```
 
-`mysql_db` is optional; default is `conquered`.
+`mysql_db` is optional; default is `conquered`. Generate a unique `jwt_secret` of at least 32 bytes. Changing it invalidates existing sessions.
 
 ## 2) Run migrations
 
@@ -56,3 +56,7 @@ Auth and match events now record:
 - client app platform / OS / app version (when provided by the game client)
 
 Use `Authorization: Bearer <token>` for authenticated routes.
+
+## Usage statistics access
+
+Set `usage_stats_token` to a long, random secret in the service environment and send it as a bearer token when requesting `/stats/usage`. The endpoint denies access when the secret is unset. Set `cors_origins` to a comma-separated list of trusted browser origins when browser access is needed. An empty value denies cross-origin browser requests.

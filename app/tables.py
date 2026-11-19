@@ -125,6 +125,20 @@ def _decorate(table: GameTable, seat: int, snap: dict[str, Any]) -> dict[str, An
         if 0 <= item.seat_index < len(heroes):
             heroes[item.seat_index] = item.hero_id or ""
     merged = dict(snap)
+    # Keep event positions and public draw reasons while hiding the other hand.
+    events = []
+    for event in snap.get("log", []):
+        visible = dict(event)
+        message = str(visible.get("message") or "")
+        if visible.get("event_type") == 0:
+            visible["message"] = "Match started."
+        elif visible.get("event_type") == 2 and not message.startswith(f"Player {seat + 1} drew "):
+            actor = f"Player {2 - seat}"
+            reason_at = message.find(" (")
+            reason = message[reason_at:] if reason_at >= 0 else "."
+            visible["message"] = f"{actor} drew a card{reason}"
+        events.append(visible)
+    merged["log"] = events
     merged["table_id"] = table.id
     merged["your_seat"] = seat
     merged["heroes"] = heroes
@@ -486,6 +500,7 @@ def post_action(
         "kind": "action",
         "action_type": payload.action_type,
         "card_instance_ids": payload.card_instance_ids,
+        "attack_target_ids": payload.attack_target_ids,
         "card_instance_id": payload.card_instance_id,
         "lane_index": payload.lane_index,
         "target_player_index": payload.target_player_index,

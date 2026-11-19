@@ -1,4 +1,5 @@
 import asyncio
+import hmac
 
 from datetime import datetime, timedelta
 from typing import Optional
@@ -30,7 +31,7 @@ from app.schemas import (
     UsageCountItem,
     UsageStatsResponse,
 )
-from app.security import create_access_token, decode_access_token, hash_password, verify_password
+from app.security import create_access_token, decode_access_token, hash_password, verify_password, pwd_context
 from app.service import (
     assign_friend_code,
     build_guest_name,
@@ -53,8 +54,8 @@ from app.presence import presence
 app = FastAPI(title=settings.api_title)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin.strip() for origin in settings.cors_origins.split(",")] if settings.cors_origins != "*" else ["*"],
-    allow_credentials=True,
+    allow_origins=[origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -71,11 +72,11 @@ AllowedDeckCardIds = {
     "vanguard",
     "warden",
 }
-for number in range(1, 101):
+for number in range(1, 106):
     AllowedDeckCardIds.add(f"u{number:03d}")
 for number in range(1, 51):
     AllowedDeckCardIds.add(f"s{number:03d}")
-for number in range(1, 51):
+for number in range(1, 58):
     AllowedDeckCardIds.add(f"d{number:03d}")
 
 DeckSizeLimit = 30
@@ -338,6 +339,10 @@ def login(
     if account is None or not account.password_hash or not verify_password(payload.password, account.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password.")
 
+    if pwd_context.needs_update(account.password_hash):
+        account.password_hash = hash_password(payload.password)
+        db.commit()
+
     session_user = _resolve_optional_user(db, authorization)
     if session_user is not None and session_user.is_guest and session_user.id != account.id:
         merge_guest_into_account(db, session_user, account)
@@ -571,7 +576,10 @@ def delete_deck(
 
 
 @app.get("/stats/usage", response_model=UsageStatsResponse)
-def usage_stats(days: int = Query(default=30, ge=1, le=3650), db: Session = Depends(get_db)) -> UsageStatsResponse:
+def usage_stats(days: int = Query(default=30, ge=1, le=3650), authorization: Optional[str] = Header(default=None), db: Session = Depends(get_db)) -> UsageStatsResponse:
+    token = _extract_bearer_token(authorization) or ""
+    if not settings.usage_stats_token or not hmac.compare_digest(token.encode("utf-8"), settings.usage_stats_token.encode("utf-8")):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden.")
     cutoff = datetime.utcnow() - timedelta(days=days)
     total_events = db.scalar(select(func.count(ClientEvent.id)).where(ClientEvent.created_at >= cutoff)) or 0
 

@@ -1,11 +1,12 @@
 import asyncio
+import time
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.db import SessionLocal
 from app.deps import _token
 from app.presence import presence
-from app.security import decode_access_token
+from app.security import decode_access_token_with_expiry
 from app.service import load_active_user_by_id
 from app.social import publish_friends_changed
 from app.tables import note_presence
@@ -39,7 +40,7 @@ async def live_socket(websocket: WebSocket) -> None:
     db = SessionLocal()
     try:
         try:
-            user_id = decode_access_token(token)
+            user_id, expires_at = decode_access_token_with_expiry(token)
         except Exception:
             await websocket.send_text('{"type":"error","message":"Invalid token."}')
             await websocket.close()
@@ -62,7 +63,18 @@ async def live_socket(websocket: WebSocket) -> None:
 
         resume_for(user.id)
         while True:
-            incoming = await websocket.receive_text()
+            remaining = expires_at - time.time()
+            if remaining <= 0:
+                await websocket.close(code=1008)
+                break
+            try:
+                incoming = await asyncio.wait_for(websocket.receive_text(), timeout=remaining)
+            except asyncio.TimeoutError:
+                await websocket.close(code=1008)
+                break
+            if time.time() >= expires_at:
+                await websocket.close(code=1008)
+                break
             if incoming == "ping":
                 await websocket.send_text('{"type":"pong"}')
     except WebSocketDisconnect:

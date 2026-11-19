@@ -195,6 +195,7 @@ class ActionRequest(BaseModel):
     client_action_id: str = Field(min_length=4, max_length=64)
     action_type: str
     card_instance_ids: list[int] = Field(default_factory=list)
+    attack_target_ids: list[int] = Field(default_factory=list, max_length=3)
     card_instance_id: int = 0
     lane_index: int = -1
     target_player_index: int = -1

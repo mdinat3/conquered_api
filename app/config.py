@@ -30,12 +30,15 @@ class Settings:
     mysql_pass: str = os.getenv("mysql_pass", "")
     mysql_port: int = int(os.getenv("mysql_port", "3306"))
     mysql_db: str = os.getenv("mysql_db", "conquered")
-    jwt_secret: str = os.getenv("jwt_secret", "change-me-in-prod")
+    jwt_secret: str = os.getenv("jwt_secret", "")
     jwt_algorithm: str = "HS256"
     token_exp_hours: int = int(os.getenv("token_exp_hours", "720"))
     api_title: str = "Conquered API"
-    cors_origins: str = os.getenv("cors_origins", "*")
+    cors_origins: str = os.getenv("cors_origins", "")
+    usage_stats_token: str = os.getenv("usage_stats_token", "")
     match_url: str = os.getenv("match_url", "http://127.0.0.1:8010")
 
 
 settings = Settings()
+if len(settings.jwt_secret.encode("utf-8")) < 32:
+    raise RuntimeError("Configure jwt_secret with at least 32 bytes before starting the API.")
